@@ -53,8 +53,7 @@ class MixinConsole:
     async def tryConnect(self) -> None:
         try:
             await self.connect()
-        except Exception as e:
-            print("mixin console connect error", e)
+        except Exception:
             import traceback
             traceback.print_exc()
             await self.reconnect()
@@ -137,6 +136,11 @@ def getMixinConsole(mixinId, mixinProvider) -> Any:
     return console
 
 
+class ShouldSendNotification(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+
+
 class NotificationFilterMixin(Notifier, Settings, Camera):
 
     def __init__(self, mixinProvider: 'NotificationFilter', mixinDevice: Any, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState):
@@ -162,8 +166,68 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         return self.storage.getItem(f"{camera_id}:zone:{zone}:type") or "Intersect"
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
-        await self.mixinConsole.log("sendNotification", title, options, media, icon)
-        return await self.mixinDevice.sendNotification(title, options, media, icon)
+        try:
+            if not options:
+                raise ShouldSendNotification("no options")
+
+            if "recordedEvent" not in options:
+                raise ShouldSendNotification("no recordedEvent")
+            recordedEvent = options["recordedEvent"]
+
+            if "data" in options and "snoozeId" in options["data"]:
+                # TODO: remove this once we have the actual device id in the event
+                device_id = options["data"]["snoozeId"].split("-")[1]
+            else:
+                raise ShouldSendNotification("no device id")
+
+            zones = self.zones_of(device_id)
+            if not zones:
+                raise ShouldSendNotification("no zones")
+
+            if "data" in recordedEvent and "detections" in recordedEvent["data"]:
+                detections = recordedEvent["data"]["detections"]
+            else:
+                raise ShouldSendNotification("no detections")
+
+            if "inputDimensions" not in recordedEvent["data"]:
+                raise ShouldSendNotification("no inputDimensions")
+            inputDimensions = recordedEvent["data"]["inputDimensions"]
+
+            no_zones_at_all = True
+            for detection in detections:
+                if "boundingBox" not in detection:
+                    continue
+
+                boundingBox = detection["boundingBox"]
+                detection_box = shapely.geometry.box(boundingBox[0], boundingBox[1], boundingBox[0] + boundingBox[2], boundingBox[1] + boundingBox[3])
+
+                for zone in zones:
+                    zone_details = self.zone_details_of(device_id, zone)
+                    if not zone_details:
+                        continue
+
+                    zone_details = [[x * inputDimensions[0], y * inputDimensions[1]] for [x, y] in zone_details]
+                    zone_box = shapely.geometry.Polygon(zone_details)
+                    no_zones_at_all = False
+
+                    if self.zone_type_of(device_id, zone) == "Intersect":
+                        if detection_box.intersects(zone_box):
+                            raise ShouldSendNotification(f"bounding box {detection_box} intersects zone {zone_box}")
+                    else:
+                        if detection_box.contains(zone_box):
+                            raise ShouldSendNotification(f"bounding box {detection_box} contains zone {zone_box}")
+
+            if no_zones_at_all:
+                raise ShouldSendNotification("no detections or no zones")
+        except ShouldSendNotification as e:
+            await self.mixinConsole.info(f"Sending notification {title} because: {e.reason}")
+            await self.mixinDevice.sendNotification(title, options, media, icon)
+        except Exception as e:
+            await self.mixinConsole.error(f"Failed to filter notification: {e}")
+            await self.mixinDevice.sendNotification(title, options, media, icon)
+
+        # nothing matched, so don't send
+        await self.mixinConsole.info(f"Skipping notification: {title}")
 
     async def mySettings(self) -> list[Setting]:
         cameras = await self.get_all_detector_cameras()
@@ -230,7 +294,6 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
             await self.mixinDevice.putSetting(key, value)
             return
 
-        print(value)
         if key == "selected_camera":
             value = self.readable_to_camera(value)
         self.storage.setItem(key, value)
