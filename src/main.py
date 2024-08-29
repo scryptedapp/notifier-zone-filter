@@ -174,7 +174,9 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
                 raise ShouldSendNotification("no recordedEvent")
             recordedEvent = options["recordedEvent"]
 
-            if "data" in options and "snoozeId" in options["data"]:
+            if recordedEvent.get("id"):
+                device_id = recordedEvent["id"]
+            elif "data" in options and "snoozeId" in options["data"]:
                 # TODO: remove this once we have the actual device id in the event
                 device_id = options["data"]["snoozeId"].split("-")[1]
             else:
