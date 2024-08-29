@@ -1,0 +1,2 @@
+shapely==2.0.5
+cachetools==5.4.0
