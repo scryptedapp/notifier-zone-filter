@@ -1,6 +1,5 @@
-import tracemalloc
-tracemalloc.start()
-
+import asyncio
+import itertools
 from typing import Any, AbstractSet
 
 from cachetools import cached, TTLCache
@@ -35,6 +34,15 @@ class PrefixStorage(Storage):
             self.removeItem(key)
 
 
+async def reload_settings(device_id, mixin) -> None:
+    await scrypted_sdk.deviceManager.onMixinEvent(
+        device_id,
+        mixin,
+        ScryptedInterface.Settings.value,
+        None
+    )
+
+
 class NotificationFilterMixin(Notifier, Settings, Camera):
 
     def __init__(self, mixinProvider: 'NotificationFilter', mixinDevice: Any, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState):
@@ -43,6 +51,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         self.mixinDeviceInterfaces = mixinDeviceInterfaces
         self.mixinDeviceState = mixinDeviceState
         self.storage = PrefixStorage(mixinProvider, f"mixin:{mixinDeviceState.id}")
+        asyncio.create_task(reload_settings(mixinDeviceState.id, self))
 
     @property
     def selected_camera(self) -> list[str]:
@@ -53,6 +62,9 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
 
     def zone_details_of(self, camera_id: str, zone: str) -> list[list[float]]:
         return self.storage.getItem(f"{camera_id}:zone:{zone}") or []
+
+    def zone_type_of(self, camera_id: str, zone: str) -> str:
+        return self.storage.getItem(f"{camera_id}:zone:{zone}:type") or "Intersect"
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
         print(options)
@@ -72,28 +84,40 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
             }
         ]
 
-        """
-        for camera_id in enabled_cameras:
+        if self.selected_camera:
+            camera_id = self.selected_camera
+            zones = self.zones_of(camera_id)
             settings.append({
-                "group": f"{self.camera_to_readable(camera_id)} Zone Filter",
+                "group": "Notification Zone Filter",
                 "key": f"{camera_id}:zones",
                 "description": "Enter the name of a new zone or delete an existing zone.",
                 "multiple": True,
                 "combobox": True,
-                "choices": self.zones_of(camera_id),
+                "choices": zones,
+                "value": zones,
             })
-            settings.extend([
-                {
-                    "group": f"{self.camera_to_readable(camera_id)} Zone Filter",
-                    "subgroup": f"Zone: {zone}",
-                    "key": f"{camera_id}:zone:{zone}",
-                    "title": "Open Zone Editor",
-                    "type": "clippath",
-                    "value": self.zone_details_of(camera_id, zone)
-                }
-                for zone in self.zones_of(camera_id)
+            zone_settings = itertools.chain(*[
+                [
+                    {
+                        "group": "Notification Zone Filter",
+                        "subgroup": f"Zone: {zone}",
+                        "key": f"{camera_id}:zone:{zone}",
+                        "title": "Open Zone Editor",
+                        "type": "clippath",
+                        "value": self.zone_details_of(self.selected_camera, zone)
+                    },
+                    {
+                        "group": "Notification Zone Filter",
+                        "subgroup": f"Zone: {zone}",
+                        "key": f"{camera_id}:zone:{zone}:type",
+                        "title": "Zone Type",
+                        "choices": ["Intersect", "Contain"],
+                        "description": "An Intersect zone will match objects that are partially or fully inside the zone. A Contain zone will only match objects that are fully inside the zone.",
+                        "value": self.zone_type_of(self.selected_camera, zone)
+                    }
+                ] for zone in zones
             ])
-        """
+            settings.extend(zone_settings)
 
         return settings
 
@@ -115,12 +139,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         if key == "selected_camera":
             value = self.readable_to_camera(value)
         self.storage.setItem(key, value)
-        await scrypted_sdk.deviceManager.onMixinEvent(
-            self.mixinDeviceState.id,
-            self,
-            ScryptedInterface.Settings.value,
-            None
-        )
+        await reload_settings(self.mixinDeviceState.id, self)
 
     async def getPictureOptions(self) -> list[ResponsePictureOptions]:
         camera = self.get_device_from_scrypted(self.selected_camera)
@@ -179,6 +198,7 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider):
 
     def __init__(self, nativeId: str | None = None):
         super().__init__(nativeId)
+        self.mixin_dict = {}
 
     async def canMixin(self, type: ScryptedDeviceType, interfaces: list[str]) -> None | list[str]:
         if (ScryptedInterface.Notifier.value in interfaces):
@@ -186,9 +206,14 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider):
         return None
 
     async def getMixin(self, mixinDevice: ScryptedDevice, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState) -> Any:
-        return NotificationFilterMixin(self, mixinDevice, mixinDeviceInterfaces, mixinDeviceState)
+        mixin = self.mixin_dict.get(mixinDeviceState.id)
+        if not mixin:
+            mixin = NotificationFilterMixin(self, mixinDevice, mixinDeviceInterfaces, mixinDeviceState)
+            self.mixin_dict[mixinDeviceState.id] = mixin
+        return mixin
 
     async def releaseMixin(self, id: str, mixinDevice: ScryptedDevice) -> None:
+        del self.mixin_dict[id]
         return None
 
 
