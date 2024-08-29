@@ -162,7 +162,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
                 continue
 
             # prevent looping back to self
-            if device.id == self.mixinDeviceState.id:
+            if device.id in self.mixinProvider.all_mixin_device_ids():
                 continue
 
             if ScryptedInterface.Camera.value in device.interfaces:# and \
@@ -200,6 +200,9 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider):
         super().__init__(nativeId)
         self.mixin_dict = {}
 
+    def all_mixin_device_ids(self) -> list[str]:
+        return list(self.mixin_dict.keys())
+
     async def canMixin(self, type: ScryptedDeviceType, interfaces: list[str]) -> None | list[str]:
         if (ScryptedInterface.Notifier.value in interfaces):
             return [ScryptedInterface.Notifier.value, ScryptedInterface.Settings.value, ScryptedInterface.Camera.value]
@@ -213,7 +216,6 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider):
         return mixin
 
     async def releaseMixin(self, id: str, mixinDevice: ScryptedDevice) -> None:
-        del self.mixin_dict[id]
         return None
 
 
