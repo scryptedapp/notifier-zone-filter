@@ -325,8 +325,8 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
             if device.id in self.mixinProvider.all_mixin_device_ids():
                 continue
 
-            if ScryptedInterface.Camera.value in device.interfaces:# and \
-                #ScryptedInterface.ObjectDetector.value in device.interfaces:
+            if ScryptedInterface.Camera.value in device.interfaces and \
+                ScryptedInterface.ObjectDetector.value in device.interfaces:
                 detector_cameras.append(device.id)
         return detector_cameras
 
@@ -339,8 +339,8 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
     def is_valid_camera(self, camera_id: str) -> bool:
         camera = self.get_device_from_scrypted(camera_id)
         return camera is not None and \
-            ScryptedInterface.Camera.value in camera.interfaces# and \
-            #ScryptedInterface.ObjectDetector.value in camera.interfaces
+            ScryptedInterface.Camera.value in camera.interfaces and \
+            ScryptedInterface.ObjectDetector.value in camera.interfaces
 
     def camera_to_readable(self, camera_id: str) -> str:
         camera = self.get_device_from_scrypted(camera_id)
