@@ -43,6 +43,100 @@ async def reload_settings(device_id, mixin) -> None:
     )
 
 
+class MixinConsole:
+    def __init__(self, mixinId: str, mixinProvider: ScryptedDeviceBase):
+        self.mixinId = mixinId
+        self.mixinProvider = mixinProvider
+        self.nativeId = mixinProvider.nativeId
+        asyncio.create_task(self.tryConnect())
+
+    async def tryConnect(self) -> None:
+        try:
+            await self.connect()
+        except Exception as e:
+            print("mixin console connect error", e)
+            import traceback
+            traceback.print_exc()
+            await self.reconnect()
+
+    async def connect(self) -> None:
+        ds = scrypted_sdk.deviceManager.getDeviceState(self.nativeId)
+        if not ds:
+            return
+
+        plugins = await scrypted_sdk.systemManager.getComponent('plugins')
+        mixin = scrypted_sdk.systemManager.getDeviceById(self.mixinId)
+
+        if not mixin:
+            return
+
+        pluginId = mixin.pluginId
+        mixinNativeId = mixin.nativeId or 'undefined'
+
+        port = await plugins.getRemoteServicePort(pluginId, 'console-writer')
+
+        reader, self.writer = await asyncio.open_connection('localhost', port)
+        self.writer.write((mixinNativeId + '\n').encode())
+        await self.writer.drain()
+
+    async def reconnect(self) -> None:
+        try:
+            if self.writer:
+                self.writer.close()
+                await self.writer.wait_closed()
+        except:
+            pass
+        finally:
+            self.writer = None
+
+        await asyncio.sleep(10000)
+        asyncio.create_task(self.tryConnect())
+
+    async def log(self, *args):
+        self.mixinProvider.print(*args)
+        try:
+            if not self.writer:
+                return
+
+            message = " ".join([str(arg) for arg in args])
+            message = message.replace('\n', f'\n[{self.mixinProvider.name}]: ')
+            self.writer.write((f'[{self.mixinProvider.name}]: ' + message + '\n').encode())
+            await self.writer.drain()
+        except:
+            asyncio.create_task(self.reconnect())
+
+    async def info(self, *args):
+        await self.log(*args)
+
+    async def error(self, *args):
+        await self.log(*args)
+
+    async def warn(self, *args):
+        await self.log(*args)
+
+    async def debug(self, *args):
+        await self.log(*args)
+
+    async def trace(self, *args):
+        await self.log(*args)
+
+
+mixin_consoles = {}
+def getMixinConsole(mixinId, mixinProvider) -> Any:
+    native_id_consoles = mixin_consoles.get(mixinProvider.nativeId)
+    if not native_id_consoles:
+        native_id_consoles = {}
+        mixin_consoles[mixinProvider.nativeId] = native_id_consoles
+
+    console = native_id_consoles.get(mixinId)
+    if console:
+        return console
+
+    console = MixinConsole(mixinId, mixinProvider)
+    native_id_consoles[mixinId] = console
+    return console
+
+
 class NotificationFilterMixin(Notifier, Settings, Camera):
 
     def __init__(self, mixinProvider: 'NotificationFilter', mixinDevice: Any, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState):
@@ -51,6 +145,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         self.mixinDeviceInterfaces = mixinDeviceInterfaces
         self.mixinDeviceState = mixinDeviceState
         self.storage = PrefixStorage(mixinProvider, f"mixin:{mixinDeviceState.id}")
+        self.mixinConsole = getMixinConsole(mixinDeviceState.id, mixinProvider)
         asyncio.create_task(reload_settings(mixinDeviceState.id, self))
 
     @property
@@ -67,7 +162,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         return self.storage.getItem(f"{camera_id}:zone:{zone}:type") or "Intersect"
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
-        print(options)
+        await self.mixinConsole.log("sendNotification", title, options, media, icon)
         return await self.mixinDevice.sendNotification(title, options, media, icon)
 
     async def mySettings(self) -> list[Setting]:
@@ -199,6 +294,9 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider):
     def __init__(self, nativeId: str | None = None):
         super().__init__(nativeId)
         self.mixin_dict = {}
+
+    def print(self, *args):
+        print(*args)
 
     def all_mixin_device_ids(self) -> list[str]:
         return list(self.mixin_dict.keys())
