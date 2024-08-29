@@ -225,9 +225,9 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
         except Exception as e:
             await self.mixinConsole.error(f"Failed to filter notification: {e}")
             await self.mixinDevice.sendNotification(title, options, media, icon)
-
-        # nothing matched, so don't send
-        await self.mixinConsole.info(f"Skipping notification: {title}")
+        else:
+            # nothing matched, so don't send
+            await self.mixinConsole.info(f"Skipping notification: {title}")
 
     async def mySettings(self) -> list[Setting]:
         cameras = await self.get_all_detector_cameras()
