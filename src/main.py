@@ -357,6 +357,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
         return self.storage.getItem("use_custom") or False
 
     def selected_preset(self) -> str:
+        # note that this is the scrypted device id, not the nativeId!
         return self.storage.getItem("selected_preset")
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
@@ -370,7 +371,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
             if self.use_custom():
                 preset = self
             else:
-                preset = self.basePlugin.preset_devices[self.selected_preset()]
+                preset = self.basePlugin.get_preset_by_scrypted_id(self.selected_preset())
 
             if not options:
                 raise ShouldSendNotification("no options")
@@ -512,6 +513,8 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider, DeviceProvider, Devi
 
     def __init__(self, nativeId: str | None = None):
         super().__init__(nativeId)
+
+        # these use nativeIds as keys
         self.mixin_dict = {}
         self.preset_devices = {}
 
@@ -526,6 +529,12 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider, DeviceProvider, Devi
 
     def all_preset_devices(self) -> list[NotificationFilterPreset]:
         return list(self.preset_devices.values())
+
+    def get_preset_by_scrypted_id(self, device_id) -> NotificationFilterPreset:
+        for preset in self.all_preset_devices():
+            if preset.id == device_id:
+                return preset
+        return None
 
     async def canMixin(self, type: ScryptedDeviceType, interfaces: list[str]) -> None | list[str]:
         if (ScryptedInterface.Notifier.value in interfaces):
