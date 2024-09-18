@@ -29,7 +29,9 @@
       "runtime": "python",
       "type": "API",
       "interfaces": [
-         "MixinProvider"
+         "MixinProvider",
+         "DeviceProvider",
+         "DeviceCreator"
       ]
    },
    "devDependencies": {
