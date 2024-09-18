@@ -1,12 +1,50 @@
 import asyncio
+from io import BytesIO
 import itertools
 from typing import Any, AbstractSet
 
 from cachetools import cached, TTLCache
+from PIL import Image, ImageDraw
 import shapely
 
 import scrypted_sdk
 from scrypted_sdk import ScryptedDeviceBase, MixinProvider, ScryptedDeviceType, ScryptedInterface, WritableDeviceState, ScryptedDevice, Notifier, NotifierOptions, MediaObject, Settings, Setting, Storage, Camera, ResponsePictureOptions, RequestPictureOptions
+
+
+def draw_polygons_in_memory(image_bytes, polygon1, polygon2, color1, color2):
+    """
+    Draws two polygons on an image (in memory) with specified colors.
+
+    Args:
+        image_bytes (bytes): Input image in bytes.
+        polygon1 (list): List of (x, y) tuples representing the vertices of the first polygon.
+        polygon2 (list): List of (x, y) tuples representing the vertices of the second polygon.
+        color1 (str or tuple): Color for the first polygon (e.g., 'red', or (255, 0, 0)).
+        color2 (str or tuple): Color for the second polygon (e.g., 'blue', or (0, 0, 255)).
+
+    Returns:
+        bytes: Modified image as bytes.
+    """
+    # Load the image from bytes
+    image = Image.open(BytesIO(image_bytes))
+
+    # Create a drawable object
+    draw = ImageDraw.Draw(image)
+
+    # Draw the first polygon
+    draw.line(polygon1 + [polygon1[0]], fill=color1, width=3)
+
+    # Draw the second polygon
+    draw.line(polygon2 + [polygon2[0]], fill=color2, width=3)
+
+    # Save the modified image into a byte stream
+    output_bytes_io = BytesIO()
+    image.save(output_bytes_io, format="PNG")
+
+    # Get the bytes of the modified image
+    modified_image_bytes = output_bytes_io.getvalue()
+
+    return modified_image_bytes
 
 
 class PrefixStorage(Storage):
@@ -137,8 +175,10 @@ def getMixinConsole(mixinId, mixinProvider) -> Any:
 
 
 class ShouldSendNotification(Exception):
-    def __init__(self, reason):
+    def __init__(self, reason: str, zone_bbox: shapely.geometry.Polygon = None, obj_bbox: shapely.geometry.Polygon = None):
         self.reason = reason
+        self.zone_bbox = zone_bbox
+        self.obj_bbox = obj_bbox
 
 
 class NotificationFilterMixin(Notifier, Settings, Camera):
@@ -164,6 +204,9 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
 
     def zone_type_of(self, camera_id: str, zone: str) -> str:
         return self.storage.getItem(f"{camera_id}:zone:{zone}:type") or "Intersect"
+
+    def debug_zones(self) -> bool:
+        return self.storage.getItem("debug_zones") or False
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
         try:
@@ -214,15 +257,29 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
 
                     if self.zone_type_of(device_id, zone) == "Intersect":
                         if detection_box.intersects(zone_box):
-                            raise ShouldSendNotification(f"bounding box {detection_box} intersects zone {zone_box}")
+                            raise ShouldSendNotification(f"bounding box {detection_box} intersects zone {zone_box}", zone_box, detection_box)
                     else:
                         if detection_box.contains(zone_box):
-                            raise ShouldSendNotification(f"bounding box {detection_box} contains zone {zone_box}")
+                            raise ShouldSendNotification(f"bounding box {detection_box} contains zone {zone_box}", zone_box, detection_box)
 
             if no_zones_at_all:
                 raise ShouldSendNotification("no detections or no zones")
         except ShouldSendNotification as e:
             await self.mixinConsole.info(f"Sending notification {title} because: {e.reason}")
+
+            if self.debug_zones() and e.zone_bbox and e.obj_bbox:
+                try:
+                    device = scrypted_sdk.systemManager.getDeviceById(device_id)
+                    image = await device.takePicture()
+                    image_bytes = await scrypted_sdk.mediaManager.convertMediaObjectToBuffer(image, "image/png")
+
+                    zone_bbox = [(x, y) for x, y in e.zone_bbox.exterior.coords]
+                    obj_bbox = [(x, y) for x, y in e.obj_bbox.exterior.coords]
+                    modified_image_bytes = draw_polygons_in_memory(image_bytes, zone_bbox, obj_bbox, 'red', 'blue')
+                    media = await scrypted_sdk.mediaManager.createMediaObject(modified_image_bytes, "image/png")
+                except Exception as e:
+                    await self.mixinConsole.error(f"Failed to draw polygons: {e}")
+
             await self.mixinDevice.sendNotification(title, options, media, icon)
         except Exception as e:
             await self.mixinConsole.error(f"Failed to filter notification: {e}")
@@ -242,7 +299,7 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
                 "value": self.camera_to_readable(self.selected_camera),
                 "choices": [self.camera_to_readable(camera_id) for camera_id in cameras],
                 "immediate": True
-            }
+            },
         ]
 
         if self.selected_camera:
@@ -279,6 +336,17 @@ class NotificationFilterMixin(Notifier, Settings, Camera):
                 ] for zone in zones
             ])
             settings.extend(zone_settings)
+
+        settings.append(
+            {
+                "group": "Notification Zone Filter",
+                "key": "debug_zones",
+                "title": "Debug Zones",
+                "description": "Enable debug zones to send a full frame snapshot with the zone and object bounding boxes, replacing the original notification's image.",
+                "type": "boolean",
+                "value": self.debug_zones()
+            }
+        )
 
         return settings
 
