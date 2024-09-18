@@ -29,7 +29,6 @@ from scrypted_sdk import (
     DeviceCreator,
     DeviceCreatorSettings,
 )
-from scrypted_sdk.other import SettingValue
 
 
 def draw_polygons_in_memory(image_bytes, polygon1, polygon2, color1, color2):
