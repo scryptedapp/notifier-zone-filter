@@ -1,6 +1,7 @@
 import asyncio
 from io import BytesIO
 import itertools
+import traceback
 from typing import Any, AbstractSet
 import uuid
 
@@ -112,7 +113,6 @@ class MixinConsole:
         try:
             await self.connect()
         except Exception:
-            import traceback
             traceback.print_exc()
             await self.reconnect()
 
@@ -218,7 +218,7 @@ class NotificationFilterEditor(Camera):
     def zone_type_of(self, camera_id: str, zone: str) -> str:
         return self.storage.getItem(f"{camera_id}:zone:{zone}:type") or "Intersect"
 
-    async def get_all_detector_cameras(self) -> list[str]:
+    def get_all_detector_cameras(self) -> list[str]:
         detector_cameras = []
         state = scrypted_sdk.systemManager.getSystemState()
         for device_id in state.keys():
@@ -259,8 +259,8 @@ class NotificationFilterEditor(Camera):
         id = id.removeprefix("(id: ").removesuffix(")")
         return id
 
-    async def editor_settings(self) -> list[Setting]:
-        cameras = await self.get_all_detector_cameras()
+    def editor_settings(self) -> list[Setting]:
+        cameras = self.get_all_detector_cameras()
         settings = [
             {
                 "group": "Notification Zone Filter",
@@ -330,7 +330,7 @@ class NotificationFilterPreset(ScryptedDeviceBase, Settings, NotificationFilterE
         self.basePlugin = basePlugin
 
     async def getSettings(self) -> list[Setting]:
-        return await self.editor_settings()
+        return self.editor_settings()
 
     async def putSetting(self, key: str, value: str) -> None:
         if key == "selected_camera":
@@ -452,51 +452,54 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
             await self.mixinConsole.info(f"Skipping notification: {title}")
 
     async def getSettings(self) -> list[Setting]:
-        settings = []
-        if ScryptedInterface.Settings.value in self.mixinDeviceInterfaces:
-            settings.extend(await self.mixinDevice.getSettings())
+        try:
+            settings = []
+            if ScryptedInterface.Settings.value in self.mixinDeviceInterfaces:
+                settings.extend(await self.mixinDevice.getSettings())
 
-        settings.append(
-            {
-                "group": "Notification Zone Filter",
-                "key": "use_custom",
-                "title": "Use Custom Zones",
-                "description": "Enable to use custom zones for this notifier. Presets will not be used when enabled.",
-                "type": "boolean",
-                "value": self.use_custom()
-            }
-        )
-
-        if self.use_custom():
-            settings.extend(await self.editor_settings())
-        else:
-            presets = self.basePlugin.all_preset_devices()
             settings.append(
                 {
                     "group": "Notification Zone Filter",
-                    "key": "selected_preset",
-                    "title": "Select Zone Filter Preset",
-                    "description": "Select a preset to use for this notifier.",
-                    "choices": [self.device_to_readable(preset.id) for preset in presets],
-                    "value": self.device_to_readable(self.selected_preset())
+                    "key": "use_custom",
+                    "title": "Use Custom Zones",
+                    "description": "Enable to use custom zones for this notifier. Presets will not be used when enabled.",
+                    "type": "boolean",
+                    "value": self.use_custom()
                 }
             )
 
-        settings.append(
-            {
-                "group": "Notification Zone Filter",
-                "key": "debug_zones",
-                "title": "Debug Zones",
-                "description": "Enable debug zones to send a full frame snapshot with the zone and object bounding boxes, replacing the original notification's image.",
-                "type": "boolean",
-                "value": self.debug_zones()
-            }
-        )
+            if self.use_custom():
+                settings.extend(self.editor_settings())
+            else:
+                presets = self.basePlugin.all_preset_devices()
+                settings.append(
+                    {
+                        "group": "Notification Zone Filter",
+                        "key": "selected_preset",
+                        "title": "Select Zone Filter Preset",
+                        "description": "Select a preset to use for this notifier.",
+                        "choices": [self.device_to_readable(preset.id) for preset in presets],
+                        "value": self.device_to_readable(self.selected_preset())
+                    }
+                )
 
-        return settings
+            settings.append(
+                {
+                    "group": "Notification Zone Filter",
+                    "key": "debug_zones",
+                    "title": "Debug Zones",
+                    "description": "Enable debug zones to send a full frame snapshot with the zone and object bounding boxes, replacing the original notification's image.",
+                    "type": "boolean",
+                    "value": self.debug_zones()
+                }
+            )
+
+            return settings
+        except:
+            traceback.print_exc()
 
     async def putSetting(self, key: str, value: str | list[str] | list[list[float]]) -> None:
-        editor_settings = await self.editor_settings()
+        editor_settings = self.editor_settings()
         my_keys = [setting["key"] for setting in editor_settings] + ["debug_zones", "use_custom", "selected_preset"]
 
         if key not in my_keys:
@@ -542,6 +545,7 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider, DeviceProvider, Devi
         return None
 
     async def getMixin(self, mixinDevice: ScryptedDevice, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState) -> Any:
+        print(f"getMixin {mixinDeviceState.id}")
         mixin = self.mixin_dict.get(mixinDeviceState.id)
         if not mixin:
             mixin = NotificationFilterMixin(self, mixinDevice, mixinDeviceInterfaces, mixinDeviceState)
@@ -549,7 +553,9 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider, DeviceProvider, Devi
         return mixin
 
     async def releaseMixin(self, id: str, mixinDevice: ScryptedDevice) -> None:
-        # probably nothing to do here?
+        print(f"releaseMixin {id}")
+        if id in self.mixin_dict:
+            del self.mixin_dict[id]
         return None
 
     async def createDevice(self, settings: DeviceCreatorSettings) -> str:
