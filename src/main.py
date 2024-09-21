@@ -361,6 +361,9 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
         return self.storage.getItem("selected_preset")
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
+        #import json
+        #print(json.dumps(options, indent=2))
+
         try:
             if not self.use_custom() and not self.selected_preset():
                 raise ShouldSendNotification("no preset selected")
@@ -433,7 +436,11 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
             if self.debug_zones() and e.zone_bbox and e.obj_bbox:
                 try:
                     device = scrypted_sdk.systemManager.getDeviceById(device_id)
-                    image = await device.takePicture()
+
+                    if "detectionId" in recordedEvent["data"]:
+                        image = await device.getDetectionInput(recordedEvent["data"]["detectionId"])
+                    else:
+                        image = await device.takePicture()
                     image_bytes = await scrypted_sdk.mediaManager.convertMediaObjectToBuffer(image, "image/png")
 
                     zone_bbox = [(x, y) for x, y in e.zone_bbox.exterior.coords]
