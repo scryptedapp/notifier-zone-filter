@@ -440,7 +440,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
                     if "detectionId" in recordedEvent["data"]:
                         try:
                             image = await device.getDetectionInput(recordedEvent["data"]["detectionId"])
-                        except:
+                        except Exception as e:
                             await self.mixinConsole.error(f"Failed to get detection input: {e}")
                             image = await device.takePicture()
                     else:
