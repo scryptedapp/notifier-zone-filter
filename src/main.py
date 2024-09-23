@@ -438,7 +438,11 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
                     device = scrypted_sdk.systemManager.getDeviceById(device_id)
 
                     if "detectionId" in recordedEvent["data"]:
-                        image = await device.getDetectionInput(recordedEvent["data"]["detectionId"])
+                        try:
+                            image = await device.getDetectionInput(recordedEvent["data"]["detectionId"])
+                        except:
+                            await self.mixinConsole.error(f"Failed to get detection input: {e}")
+                            image = await device.takePicture()
                     else:
                         image = await device.takePicture()
                     image_bytes = await scrypted_sdk.mediaManager.convertMediaObjectToBuffer(image, "image/png")
