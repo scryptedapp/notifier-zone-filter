@@ -1,6 +1,7 @@
 import asyncio
 from io import BytesIO
 import itertools
+import json
 import traceback
 from typing import Any, AbstractSet
 import uuid
@@ -248,17 +249,6 @@ class NotificationFilterEditor(Camera):
             ScryptedInterface.Camera.value in camera.interfaces and \
             ScryptedInterface.ObjectDetector.value in camera.interfaces
 
-    def device_to_readable(self, device_id: str) -> str:
-        device = self.get_device_from_scrypted(device_id)
-        if not device:
-            return None
-        return f"{device.name} (id: {device.id})"
-
-    def readable_to_device(self, readable: str) -> str:
-        id = readable.split(" ")[-1]
-        id = id.removeprefix("(id: ").removesuffix(")")
-        return id
-
     def editor_settings(self) -> list[Setting]:
         cameras = self.get_all_detector_cameras()
         settings = [
@@ -267,9 +257,10 @@ class NotificationFilterEditor(Camera):
                 "key": "selected_camera",
                 "title": "Configure Zones for Camera",
                 "description": "Select a camera to configure zones for.",
-                "value": self.device_to_readable(self.selected_camera),
-                "choices": [self.device_to_readable(camera_id) for camera_id in cameras],
-                "immediate": True
+                "value": self.selected_camera,
+                "immediate": True,
+                "type": "device",
+                "deviceFilter": f"{json.dumps(cameras)}.includes(id)",
             },
         ]
 
@@ -333,8 +324,6 @@ class NotificationFilterPreset(ScryptedDeviceBase, Settings, NotificationFilterE
         return self.editor_settings()
 
     async def putSetting(self, key: str, value: str) -> None:
-        if key == "selected_camera":
-            value = self.readable_to_device(value)
         self.storage.setItem(key, value)
         await self.onDeviceEvent(ScryptedInterface.Settings.value, None)
 
@@ -361,8 +350,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
         return self.storage.getItem("selected_preset")
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
-        #import json
-        #print(json.dumps(options, indent=2))
+        #await self.mixinConsole.info(json.dumps(options, indent=2))
 
         try:
             if not self.use_custom() and not self.selected_preset():
@@ -483,14 +471,16 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
                 settings.extend(self.editor_settings())
             else:
                 presets = self.basePlugin.all_preset_devices()
+                presets = [device.id for device in presets]
                 settings.append(
                     {
                         "group": "Notification Zone Filter",
                         "key": "selected_preset",
                         "title": "Select Zone Filter Preset",
                         "description": "Select a preset to use for this notifier.",
-                        "choices": [self.device_to_readable(preset.id) for preset in presets],
-                        "value": self.device_to_readable(self.selected_preset())
+                        "value": self.selected_preset(),
+                        "type": "device",
+                        "deviceFilter": f"{json.dumps(presets)}.includes(id)",
                     }
                 )
 
@@ -517,8 +507,6 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
             await self.mixinDevice.putSetting(key, value)
             return
 
-        if key == "selected_camera" or key == "selected_preset":
-            value = self.readable_to_device(value)
         self.storage.setItem(key, value)
         await reload_settings(self.mixinDeviceState.id, self)
 
