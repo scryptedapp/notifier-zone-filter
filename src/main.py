@@ -2,6 +2,7 @@ import asyncio
 from io import BytesIO
 import itertools
 import json
+import string
 import traceback
 from typing import Any, AbstractSet
 import uuid
@@ -31,6 +32,8 @@ from scrypted_sdk import (
     DeviceCreator,
     DeviceCreatorSettings,
 )
+
+from detection_classes import labels, categories, guess_label_matches_category
 
 
 def draw_polygons_in_memory(image_bytes, polygon1, polygon2, color1, color2):
@@ -359,6 +362,10 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
             if not self.use_custom() and not self.get_device_from_scrypted(self.selected_preset()):
                 raise ShouldSendNotification("preset not found")
 
+            body = options.get("body", "").translate(str.maketrans('', '', string.punctuation)).lower()
+            body_tokens = body.split()
+            notification_subject_category = next((token for token in body_tokens if token in labels()), None)
+
             if self.use_custom():
                 preset = self
             else:
@@ -394,10 +401,13 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
 
             no_zones_at_all = True
             for detection in detections:
-                if "boundingBox" not in detection:
+                if "boundingBox" not in detection or "className" not in detection:
                     continue
 
-                if detection.get("className") == "motion":
+                if detection["className"] == "motion":
+                    continue
+
+                if notification_subject_category and not guess_label_matches_category(detection["className"], notification_subject_category):
                     continue
 
                 boundingBox = detection["boundingBox"]
