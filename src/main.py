@@ -353,7 +353,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
         return self.storage.getItem("selected_preset")
 
     async def sendNotification(self, title: str, options: NotifierOptions = None, media: str | MediaObject = None, icon: str | MediaObject = None) -> None:
-        await self.mixinConsole.info(json.dumps(options, indent=2))
+        #await self.mixinConsole.info(json.dumps(options, indent=2))
 
         try:
             if not self.use_custom() and not self.selected_preset():
