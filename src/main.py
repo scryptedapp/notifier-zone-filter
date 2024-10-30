@@ -426,8 +426,8 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
                         if detection_box.intersects(zone_box):
                             raise ShouldSendNotification(f"bounding box {detection_box} intersects zone {zone_box}", zone_box, detection_box)
                     else:
-                        if detection_box.contains(zone_box):
-                            raise ShouldSendNotification(f"bounding box {detection_box} contains zone {zone_box}", zone_box, detection_box)
+                        if zone_box.contains(detection_box):
+                            raise ShouldSendNotification(f"bounding box {detection_box} is inside zone {zone_box}", zone_box, detection_box)
 
             if no_zones_at_all:
                 raise ShouldSendNotification("no detections or no zones")
