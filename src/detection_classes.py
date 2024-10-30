@@ -26,6 +26,9 @@ def guess_label_matches_category(label: str, category: str) -> bool:
     if label == "face" and category == "person":
         return True
 
+    if label == "teddy bear" and category == "animal":
+        return True
+
     label = label.lower()
     category = category.lower()
     for cls in classes:
