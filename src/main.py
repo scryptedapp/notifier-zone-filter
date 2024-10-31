@@ -557,21 +557,20 @@ class NotificationFilter(ScryptedDeviceBase, MixinProvider, DeviceProvider, Devi
         return None
 
     async def getMixin(self, mixinDevice: ScryptedDevice, mixinDeviceInterfaces: list[str], mixinDeviceState: WritableDeviceState) -> Any:
-        mixin, refcount = self.mixin_dict.get(mixinDeviceState.id, (None, None))
-        if not mixin:
-            mixin = NotificationFilterMixin(self, mixinDevice, mixinDeviceInterfaces, mixinDeviceState)
-            self.mixin_dict[mixinDeviceState.id] = (mixin, 1)
+        refcount = self.mixin_dict.get(mixinDeviceState.id, None)
+        if not refcount:
+            self.mixin_dict[mixinDeviceState.id] = 1
         else:
-            self.mixin_dict[mixinDeviceState.id] = (mixin, refcount + 1)
-        return mixin
+            self.mixin_dict[mixinDeviceState.id] = refcount + 1
+        return NotificationFilterMixin(self, mixinDevice, mixinDeviceInterfaces, mixinDeviceState)
 
     async def releaseMixin(self, id: str, mixinDevice: ScryptedDevice) -> None:
         if id in self.mixin_dict:
-            mixin, refcount = self.mixin_dict[id]
+            refcount = self.mixin_dict[id]
             if refcount == 1:
                 del self.mixin_dict[id]
             else:
-                self.mixin_dict[id] = (mixin, refcount - 1)
+                self.mixin_dict[id] = refcount - 1
         return None
 
     async def createDevice(self, settings: DeviceCreatorSettings) -> str:

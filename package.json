@@ -1,6 +1,6 @@
 {
    "name": "@scrypted/notifier-zone-filter",
-   "version": "0.0.3",
+   "version": "0.0.4",
    "description": "Scrypted Notifier Zone Filter",
    "license": "Apache",
    "keywords": [
