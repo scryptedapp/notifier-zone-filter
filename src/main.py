@@ -364,7 +364,7 @@ class NotificationFilterMixin(Notifier, Settings, NotificationFilterEditor):
 
             body = options.get("body", "").translate(str.maketrans('', '', string.punctuation)).lower()
             body_tokens = body.split()
-            notification_subject_category = next((token for token in body_tokens if token in labels()), None)
+            notification_subject_category = next((token for token in body_tokens if token in categories()), None)
 
             if self.use_custom():
                 preset = self
